@@ -154,6 +154,26 @@
           "albumId"
         ]
       }
+    },
+     {
+      "methodName": "actionSendWebhook",
+      "title": "Send Webhook",
+      "description": "Send an HTTP request to a specified webhook URL",
+      "supportedContexts": ["asset"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Webhook URL to send the request to"
+          },
+          "token": {
+            "type": "string",
+            "description": "Authorization token to include in the request headers"
+          }
+        },
+        "required": ["url"]
+      }
     }
   ]
 }
