@@ -1,9 +1,11 @@
 # dev build
-FROM ghcr.io/immich-app/base-server-dev:202511261514@sha256:cbcca5851fd11042463f09797e6d6068d94adbb108749e62aa69159df59c0591 AS dev
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/ghcr.io/immich-app/base-server-dev:202511261514 AS dev
 
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
   CI=1 \
   COREPACK_HOME=/tmp
+
+RUN npm config set registry https://registry.npmmirror.com/
 
 RUN npm install --global corepack@latest && \
   corepack enable pnpm && \
@@ -17,6 +19,31 @@ COPY ./open-api/typescript-sdk/package* ./open-api/typescript-sdk/pnpm* /tmp/cre
 WORKDIR /tmp/create-dep-cache
 RUN pnpm fetch && rm -rf /tmp/create-dep-cache && chmod -R o+rw /buildcache
 WORKDIR /usr/src/app
+
+# Add plugin build steps here
+# Install mise tool for plugin development
+COPY --from=ghcr.io/jdx/mise:2025.11.3@sha256:ac26f5978c0e2783f3e68e58ce75eddb83e41b89bf8747c503bac2aa9baf22c5 /usr/local/bin/mise /usr/local/bin/mise
+
+# Configure mise for plugins
+ENV MISE_TRUSTED_CONFIG_PATHS=/usr/src/app/plugins/mise.toml
+ENV MISE_DATA_DIR=/buildcache/mise
+
+# Copy plugin files
+COPY ./plugins/mise.toml ./plugins/
+
+# Install plugin dependencies
+RUN --mount=type=cache,id=mise-tools,target=/buildcache/mise \
+  mise install --cd plugins
+
+# Build plugins
+COPY ./plugins ./plugins/
+RUN --mount=type=cache,id=pnpm-plugins,target=/buildcache/pnpm-store \
+  --mount=type=bind,source=package.json,target=package.json \
+  --mount=type=bind,source=.pnpmfile.cjs,target=.pnpmfile.cjs \
+  --mount=type=bind,source=pnpm-lock.yaml,target=pnpm-lock.yaml \
+  --mount=type=bind,source=pnpm-workspace.yaml,target=pnpm-workspace.yaml \
+  --mount=type=cache,id=mise-tools,target=/buildcache/mise \
+  cd plugins && mise run build
 
 ENV PATH="${PATH}:/usr/src/app/server/bin:/usr/src/app/web/bin" \
   IMMICH_ENV=development \
@@ -40,43 +67,43 @@ COPY --chown=node:node --chmod=755 ../.devcontainer/server/*.sh /immich-devconta
 
 WORKDIR /workspaces/immich
 
-FROM dev-container-server AS dev-container-mobile
-USER root
-# Enable multiarch for arm64 if necessary
-RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
-  dpkg --add-architecture amd64 && \
-  apt-get update && \
-  apt-get install -y --no-install-recommends \
-  gnupg \
-  qemu-user-static \
-  libc6:amd64 \
-  libstdc++6:amd64 \
-  libgcc1:amd64; \
-  else \
-  apt-get update && \
-  apt-get install -y --no-install-recommends \
-  gnupg; \
-  fi
+# FROM dev-container-server AS dev-container-mobile
+# USER root
+# # Enable multiarch for arm64 if necessary
+# RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
+#   dpkg --add-architecture amd64 && \
+#   apt-get update && \
+#   apt-get install -y --no-install-recommends \
+#   gnupg \
+#   qemu-user-static \
+#   libc6:amd64 \
+#   libstdc++6:amd64 \
+#   libgcc1:amd64; \
+#   else \
+#   apt-get update && \
+#   apt-get install -y --no-install-recommends \
+#   gnupg; \
+#   fi
 
-# Flutter SDK
-# https://flutter.dev/docs/development/tools/sdk/releases?tab=linux
-ENV FLUTTER_CHANNEL="stable"
-ENV FLUTTER_VERSION="3.35.7"
-ENV FLUTTER_HOME=/flutter
-ENV PATH=${PATH}:${FLUTTER_HOME}/bin
+# # Flutter SDK
+# # https://flutter.dev/docs/development/tools/sdk/releases?tab=linux
+# ENV FLUTTER_CHANNEL="stable"
+# ENV FLUTTER_VERSION="3.35.7"
+# ENV FLUTTER_HOME=/flutter
+# ENV PATH=${PATH}:${FLUTTER_HOME}/bin
 
-# Flutter SDK
-RUN mkdir -p ${FLUTTER_HOME} \
-  && curl -C - --output flutter.tar.xz https://storage.googleapis.com/flutter_infra_release/releases/${FLUTTER_CHANNEL}/linux/flutter_linux_${FLUTTER_VERSION}-${FLUTTER_CHANNEL}.tar.xz \
-  && tar -xf flutter.tar.xz --strip-components=1 -C ${FLUTTER_HOME} \
-  && rm flutter.tar.xz \
-  && chown -R node ${FLUTTER_HOME} \
-  && git config --global --add safe.directory ${FLUTTER_HOME}
+# # Flutter SDK
+# RUN mkdir -p ${FLUTTER_HOME} \
+#   && curl -C - --output flutter.tar.xz https://storage.googleapis.com/flutter_infra_release/releases/${FLUTTER_CHANNEL}/linux/flutter_linux_${FLUTTER_VERSION}-${FLUTTER_CHANNEL}.tar.xz \
+#   && tar -xf flutter.tar.xz --strip-components=1 -C ${FLUTTER_HOME} \
+#   && rm flutter.tar.xz \
+#   && chown -R node ${FLUTTER_HOME} \
+#   && git config --global --add safe.directory ${FLUTTER_HOME}
 
 
-RUN wget -qO- https://dcm.dev/pgp-key.public | gpg --dearmor -o /usr/share/keyrings/dcm.gpg \
-  && echo 'deb [signed-by=/usr/share/keyrings/dcm.gpg arch=amd64] https://dcm.dev/debian stable main' | tee /etc/apt/sources.list.d/dart_stable.list \
-  && apt-get update \
-  && apt-get install dcm -y
+# RUN wget -qO- https://dcm.dev/pgp-key.public | gpg --dearmor -o /usr/share/keyrings/dcm.gpg \
+#   && echo 'deb [signed-by=/usr/share/keyrings/dcm.gpg arch=amd64] https://dcm.dev/debian stable main' | tee /etc/apt/sources.list.d/dart_stable.list \
+#   && apt-get update \
+#   && apt-get install dcm -y
 
-RUN dart --disable-analytics
+# RUN dart --disable-analytics
