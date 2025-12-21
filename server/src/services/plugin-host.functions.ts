@@ -33,6 +33,7 @@ export class PluginHostFunctions {
       'extism:host/user': {
         updateAsset: (cp: CurrentPlugin, offs: bigint) => this.handleUpdateAsset(cp, offs),
         addAssetToAlbum: (cp: CurrentPlugin, offs: bigint) => this.handleAddAssetToAlbum(cp, offs),
+        sendHttpRequest: (cp: CurrentPlugin, offs: bigint) => this.handleSendHttpRequest(cp, offs),
       },
     };
   }
@@ -53,6 +54,15 @@ export class PluginHostFunctions {
   private async handleAddAssetToAlbum(cp: CurrentPlugin, offs: bigint) {
     const input = JSON.parse(cp.read(offs)!.text());
     await this.addAssetToAlbum(input);
+  }
+
+  /**
+   * Host function wrapper for sendHttpRequest.
+   * Reads the input from the plugin, parses it, and calls the actual send function.
+   */
+  private async handleSendHttpRequest(cp: CurrentPlugin, offs: bigint) {
+    const input = JSON.parse(cp.read(offs)!.text());
+    await this.sendHttpRequest(input);
   }
 
   /**
@@ -116,5 +126,44 @@ export class PluginHostFunctions {
     this.logger.log(`Adding asset ${assetId} to album ${albumId}`);
     await this.albumRepository.addAssetIds(albumId, [assetId]);
     return 0;
+  }
+
+  /**
+   * Sends an HTTP request to the specified URL.
+   */
+  async sendHttpRequest(input: { authToken: string; url: string; token?: string; assetId: string }) {
+    const { authToken, url, token = '', assetId } = input;
+    // Validate token
+    const auth = this.validateToken(authToken);
+
+    // Check access to the asset
+    await requireAccess(this.accessRepository, {
+      auth: { user: { id: auth.userId } } as any,
+      permission: Permission.AssetRead,
+      ids: [assetId],
+    });
+
+    // Log the request
+    this.logger.log(`Sending HTTP request to ${url} -- ${token} ${assetId}`);
+
+    try {
+      // Send the request
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Auth-Token': token,
+        },
+        body: JSON.stringify({ assetId }),
+      });
+
+      // Log the response
+      const responseBody = await response.text();
+      this.logger.log(`Received HTTP response -- ${response.status} ${responseBody}`);
+      return 0;
+    } catch (error) {
+      this.logger.error(`Error sending HTTP request to ${url}:`, error);
+      return 1;
+    }
   }
 }

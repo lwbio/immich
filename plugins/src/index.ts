@@ -1,4 +1,4 @@
-const { updateAsset, addAssetToAlbum } = Host.getFunctions();
+const { updateAsset, addAssetToAlbum, sendHttpRequest } = Host.getFunctions();
 
 function parseInput() {
   return JSON.parse(Host.inputString());
@@ -65,6 +65,26 @@ export function actionArchive() {
   );
 
   updateAsset(ptr.offset);
+  ptr.free();
+
+  return returnOutput({ success: true });
+}
+
+export function actionSendWebhook() {
+  const input = parseInput();
+  const { authToken, config, data } = input;
+  const { url, token = '' } = config;
+
+  const ptr = Memory.fromString(
+    JSON.stringify({
+      authToken,
+      url,
+      token,
+      assetId: data.asset.id,
+    })
+  );
+
+  sendHttpRequest(ptr.offset);
   ptr.free();
 
   return returnOutput({ success: true });
